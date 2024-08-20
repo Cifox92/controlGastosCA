@@ -1,14 +1,16 @@
-import { ChangeEvent, FormEvent, useState } from 'react'
-import { categories } from '../data/categories'
-import ErrorMessage from './ErrorMessage'
-import { useBudget } from '../hooks/useBudget'
+import { ChangeEvent, FormEvent, useEffect, useState } from 'react'
 
-//DatePicker dependencies
+//Components
+import ErrorMessage from './ErrorMessage'
 import DatePicker from 'react-date-picker'
 import 'react-date-picker/dist/DatePicker.css'
 import 'react-calendar/dist/Calendar.css'
 
-//Types
+//Reducer Hook
+import { useBudget } from '../hooks/useBudget'
+
+//Data, format and Types
+import { categories } from '../data/categories'
 import type { DraftExpense, Value } from '../types'
 
 export default function ExpenseForm() {
@@ -20,7 +22,17 @@ export default function ExpenseForm() {
     })
 
     const [error, setError] = useState('')
-    const { dispatch } = useBudget()
+    const [previousAmount, setPreviousAmount] = useState(0)
+    const { dispatch, state, remainingBudget } = useBudget()
+
+    //Setea los valores del formulario en el state en caso de que exista un id de actualización de gasto.
+    useEffect(() => {
+        if(state.editingId) {
+            const editingExpense = state.expenses.filter(currentExpense => currentExpense.id === state.editingId)[0]
+            setExpense(editingExpense)
+            setPreviousAmount(editingExpense.amount)
+        }
+    }, [state.editingId])
 
     const handleChange = (e: ChangeEvent<HTMLInputElement> | ChangeEvent<HTMLSelectElement>) => {
         const { name, value } = e.target
@@ -42,12 +54,28 @@ export default function ExpenseForm() {
     const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault()
 
+        //Validación de formulario
         if(Object.values(expense).includes('')) {
             setError('Todos los campos son obligatorios')
             return
         }
 
-        dispatch({type: 'add-expense', payload: { expense }})
+        //Validar si hay suficiente saldo disponible
+        if((expense.amount - previousAmount) > remainingBudget) {
+            setError('Ese gasto se sale del presupuesto disponible')
+            return
+        }
+
+        //Agregar o actualizar el gasto
+        if(state.editingId) {
+            //Aquí el state de formulario no contempla que el objeto a actualizar contenga un ID, por lo que se lo pasamos del state global en la acción de update del dispatch. El resto de propiedades las cogemos del state del formulario, al haberse rellenado automáticamente en el useEffect.
+            dispatch({type: 'update-expense', payload: {expense: {
+                id: state.editingId, 
+                ...expense
+            }}})
+        } else {
+            dispatch({type: 'add-expense', payload: {expense}})
+        }
 
         setExpense({
             expenseName: '',
@@ -55,13 +83,14 @@ export default function ExpenseForm() {
             category: '',
             date: new Date()
         })
+        setPreviousAmount(0)
     }
 
     return (
         <form className='space-y-5' onSubmit={handleSubmit}>
             <legend
                 className='uppercase text-center text-2xl font-black border-b-4 border-blue-500 py-2'
-            >Nuevo Gasto</legend>
+            >{state.editingId ? 'Editar Gasto' : 'Nuevo Gasto'}</legend>
 
             {error && <ErrorMessage>{error}</ErrorMessage>}
 
@@ -135,7 +164,7 @@ export default function ExpenseForm() {
             <input 
                 type='submit'
                 className='bg-blue-600 cursor-pointer w-full p-2 text-white uppercase font-bold rounded-lg'
-                value={'Registrar Gasto'}
+                value={state.editingId ? 'Guardar cambios' : 'Registrar Gasto'}
             />
         </form>
     )
